@@ -3,7 +3,6 @@ import numpy as np
 import pickle
 import faiss
 import os
-import pandas as pd
 import logging
 import sys
 
@@ -44,7 +43,7 @@ try:
         if 'year' in _meta.columns:
             def clean_year(y):
                 try:
-                    if pd.isna(y): return None
+                    if y is None or (isinstance(y, float) and np.isnan(y)): return None
                     iy = int(float(y))
                     if 1900 < iy < 2027: return str(iy)
                     return None
@@ -52,7 +51,7 @@ try:
                     return None
             movie_years = [clean_year(y) for y in _meta['year']]
         elif 'release_year' in _meta.columns:
-            movie_years = [str(int(float(y))) if not pd.isna(y) else None for y in _meta['release_year']]
+            movie_years = [str(int(float(y))) if y is not None and not (isinstance(y, float) and np.isnan(y)) else None for y in _meta['release_year']]
         else:
             movie_years = [None] * len(movie_names)
             

@@ -1,8 +1,6 @@
 fastapi
-uvicorn
 numpy
 faiss-cpu
 python-multipart
-pickle5; python_version < "3.8"
 supabase
 python-dotenv
