@@ -1,0 +1,102 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+Tamil:wght@700&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+@layer base {
+  body {
+    @apply bg-[#090910] text-[#f2efe8] antialiased overflow-x-hidden;
+    font-family: 'DM Sans', sans-serif;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #e8192c;
+  border-radius: 10px;
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Skeleton Shimmer */
+.skel {
+  border-radius: 10px;
+  aspect-ratio: 2/3;
+  background: #18181f;
+  position: relative;
+  overflow: hidden;
+}
+.skel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
+  animation: sh 1.5s infinite;
+}
+@keyframes sh {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* Genre Pill */
+.gpill {
+  flex-shrink: 0;
+  background: #18181f;
+  border: 1px solid rgba(255,255,255,0.07);
+  color: #7a7a8c;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 7px 18px;
+  border-radius: 50px;
+  cursor: pointer;
+  transition: all 0.18s;
+  white-space: nowrap;
+}
+.gpill:hover {
+  color: #f2efe8;
+  border-color: rgba(255,255,255,0.22);
+}
+.gpill.on {
+  background: #e8192c;
+  border-color: #e8192c;
+  color: #fff;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.animate-pulse-slow {
+  animation: pulse 2s infinite;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-16px) scaleY(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+.animate-slideDown {
+  animation: slideDown 0.3s ease-out forwards;
+  transform-origin: top;
+}
