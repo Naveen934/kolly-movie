@@ -40,7 +40,7 @@ const MovieModal = ({ movie, allMovies = [], onMovieClick, onClose }) => {
     setLoadingRecs(true);
     try {
       const response = await fetch(
-        `http://localhost:8000/recommend?movie=${encodeURIComponent(movie.movie_name)}`
+        `/api/recommend?movie=${encodeURIComponent(movie.movie_name)}`
       );
       const data = await response.json();
       if (data.recommendations) setRecommendations(data.recommendations);
