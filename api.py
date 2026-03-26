@@ -25,8 +25,10 @@ app.add_middleware(
 
 @app.get("/recommend")
 async def get_recommendations(movie: str = Query(..., description="The movie name to get recommendations for")):
+    print(f"DEBUG: Received request for movie: {movie}") # fallback for quick check
     try:
         results = recommend(movie)
+        print(f"DEBUG: Found {len(results)} recommendations")
         
         if not results:
             return {"movie": movie, "recommendations": []}
@@ -75,9 +77,13 @@ async def get_recommendations(movie: str = Query(..., description="The movie nam
                  # Only use fallback if it's at least 70% similar in length/title
                  if best_score > 0.7:
                      res["poster"] = best_p
-            
+        
+        print(f"DEBUG: Success returning {len(results)} results")
         return {"movie": movie, "recommendations": results}
     except Exception as e:
+        print(f"DEBUG: ERROR in /recommend: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return {"error": str(e)}
 
 if __name__ == "__main__":
