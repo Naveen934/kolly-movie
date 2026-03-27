@@ -1,4 +1,4 @@
-#This Project for study purpose
+# This Project for study purpose of Recommented Kollywood Movie 
 can open the project here: https://kolly-movie.vercel.app/
 
 ## React + Vite
