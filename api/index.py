@@ -2,6 +2,7 @@ import sys
 import os
 import traceback
 import logging
+from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -16,21 +17,23 @@ from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 # Global states
-recommend = None
-get_status = None
+recommend_func = None
+get_status_func = None
 supabase = None
 import_error = None
+poster_cache = {}
+last_cache_refresh = None
 
 # Try to load engine
 try:
     import rec_movie
-    recommend = rec_movie.recommend
-    get_status = rec_movie.get_status
+    recommend_func = rec_movie.recommend
+    get_status_func = rec_movie.get_status
     logger.info("Recommendation engine loaded successfully")
 except Exception as e:
     import_error = str(e)
     logger.error(f"Engine import failed: {e}")
-    get_status = lambda: {"loaded": False, "error": import_error}
+    get_status_func = lambda: {"loaded": False, "error": import_error}
 
 # Try to load supabase
 try:
@@ -44,6 +47,34 @@ try:
         logger.warning("Supabase credentials missing")
 except Exception as e:
     logger.error(f"Supabase init failed: {e}")
+
+def refresh_poster_cache():
+    global poster_cache, last_cache_refresh
+    if not supabase:
+        return
+    
+    try:
+        logger.info("Refreshing poster cache...")
+        # Fetch all movies to handle naming mismatches robustly
+        response = supabase.table("tamil_movies").select("movie_name, poster").execute()
+        if response.data:
+            # Map normalized name (lower + strip) to poster URL
+            new_cache = {}
+            for item in response.data:
+                name = item.get("movie_name")
+                poster = item.get("poster")
+                if name:
+                    normalized_name = name.lower().strip()
+                    new_cache[normalized_name] = poster
+            
+            poster_cache = new_cache
+            last_cache_refresh = datetime.now()
+            logger.info(f"Poster cache refreshed: {len(poster_cache)} items")
+    except Exception as e:
+        logger.error(f"Failed to refresh poster cache: {e}")
+
+# Initial cache population
+refresh_poster_cache()
 
 app = FastAPI()
 
@@ -59,44 +90,60 @@ app.add_middleware(
 @app.get("/api")
 @app.get("/api/")
 async def root():
-    return {"message": "Movie Recommendation API is running", "engine": "numpy-ultralight"}
+    return {
+        "message": "Movie Recommendation API is running", 
+        "engine": "numpy-ultralight",
+        "cache_size": len(poster_cache),
+        "last_refresh": str(last_cache_refresh)
+    }
 
 @app.get("/health")
 @app.get("/api/health")
 async def health_check():
-    status = get_status() if get_status else {"loaded": False}
+    status = get_status_func() if get_status_func else {"loaded": False}
     return {
-        "status": "online" if recommend else "degraded",
+        "status": "online" if recommend_func else "degraded",
         "engine": status,
-        "supabase": supabase is not None
+        "supabase": supabase is not None,
+        "cache_items": len(poster_cache)
     }
 
 @app.get("/recommend")
 @app.get("/api/recommend")
 async def get_recommendations(movie: str = Query(..., description="The movie name")):
-    if not recommend:
+    if not recommend_func:
         raise HTTPException(status_code=503, detail="Recommendation engine not available")
     
+    # Reload cache if it's empty
+    if not poster_cache and supabase:
+        refresh_poster_cache()
+
     try:
-        results = recommend(movie)
+        results = recommend_func(movie)
         if not results:
             return {"movie": movie, "recommendations": []}
 
-        # Enrich with posters if supabase is available
-        if supabase:
-            try:
-                rec_names = [res["name"] for res in results]
-                response = supabase.table("tamil_movies").select("movie_name, poster").in_("movie_name", rec_names).execute()
-                poster_map = {item["movie_name"].lower().strip(): item["poster"] for item in response.data}
-                for res in results:
-                    res["poster"] = poster_map.get(res["name"].lower().strip())
-            except Exception as e:
-                logger.error(f"Poster enrichment failed: {e}")
+        # Enrich with posters using the robust local cache
+        for res in results:
+            name = res["name"]
+            normalized_name = name.lower().strip()
+            
+            # 1. Direct normalized match
+            res["poster"] = poster_cache.get(normalized_name)
+            
+            # 2. Fallback: Check if rec name is a substring of any DB name or vice-versa
+            if not res["poster"]:
+                for db_name, poster_url in poster_cache.items():
+                    if normalized_name in db_name or db_name in normalized_name:
+                        # 70% overlap threshold simplified
+                        if len(normalized_name) > 0.7 * len(db_name) or len(db_name) > 0.7 * len(normalized_name):
+                            res["poster"] = poster_url
+                            break
         
         return {"movie": movie, "recommendations": results}
     except Exception as e:
-        logger.error(f"Recommendation failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Recommendation failed for '{movie}': {e}")
+        return {"error": str(e), "traceback": traceback.format_exc()}
 
 if __name__ == "__main__":
     try:
