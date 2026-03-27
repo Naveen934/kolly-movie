@@ -27,6 +27,8 @@ import_error = None
 poster_cache = {}
 last_cache_refresh = None
 cache_error = None
+total_rows_fetched = 0
+
 
 
 # Try to load engine
@@ -63,7 +65,8 @@ except Exception as e:
 
 
 def refresh_poster_cache():
-    global poster_cache, last_cache_refresh, cache_error
+    global poster_cache, last_cache_refresh, cache_error, total_rows_fetched
+
 
     if not supabase:
         return
@@ -72,7 +75,9 @@ def refresh_poster_cache():
         logger.info("Refreshing poster cache...")
         # Fetch all movies (limit 5000 to cover all 1652+ rows)
         response = supabase.table("tamil_movies").select("movie_name, poster, year").limit(5000).execute()
+        total_rows_fetched = len(response.data) if response.data else 0
         if response.data:
+
             # Map normalized name + year to poster URL
             # Also map normalized name to the LATEST poster for fallback
             new_cache = {}
@@ -152,7 +157,9 @@ async def root():
         "cache_size": len(poster_cache),
         "last_refresh": str(last_cache_refresh),
         "cache_error": cache_error,
+        "rows_fetched": total_rows_fetched,
         "supabase_connected": supabase is not None,
+
         "cache_samples": samples
     }
 
