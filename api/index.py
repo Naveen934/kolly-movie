@@ -5,10 +5,30 @@ import traceback
 # Add the current directory to sys.path to ensure local imports work on Vercel
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from supabase import create_client, Client
-import uvicorn
+import os
+import sys
+import logging
+
+try:
+    import uvicorn
+except ImportError:
+    uvicorn = None
+
+# Ensure the 'api' directory is in the path so we can import rec_movie
+api_dir = os.path.dirname(os.path.abspath(__file__))
+if api_dir not in sys.path:
+    sys.path.append(api_dir)
+
+try:
+    import rec_movie
+except ImportError:
+    # Handle cases where rec_movie might be in current path instead of api.rec_movie
+    import sys
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    import rec_movie
 
 # Try to import recommend, but don't crash if it fails (so we can report the error via /health)
 try:
