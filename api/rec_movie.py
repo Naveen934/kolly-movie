@@ -4,6 +4,8 @@ import pickle
 import os
 import logging
 import sys
+import re
+
 
 # Configure logging
 logging.basicConfig(
@@ -95,13 +97,28 @@ def recommend(movie_name, top_k=8):
         logger.error("Recommendation engine is NOT loaded. Returning empty list.")
         return []
 
-    # Find movie
+    # Find movie - Tiered Search
     idx = None
     movie_name_lower = movie_name.lower().strip()
+    
+    # 1. Try exact match after cleaning
     for i, name in enumerate(movie_names):
-        if movie_name_lower in name.lower():
+        if "Movie Name is:" in name:
+            cleaned = name.split("Movie Name is:")[1].split("(Genre:")[0].split("(Year:")[0].strip()
+        else:
+            cleaned = re.sub(r'\(.*?\)', '', name).strip()
+            
+        if movie_name_lower == cleaned.lower().strip():
             idx = i
             break
+            
+    # 2. Try substring match (fallback)
+    if idx is None:
+        for i, name in enumerate(movie_names):
+            if movie_name_lower in name.lower():
+                idx = i
+                break
+
     
     if idx is None:
         logger.warning(f"Movie '{movie_name}' not found in database for recommendations.")
@@ -130,10 +147,10 @@ def recommend(movie_name, top_k=8):
             rec_clean = rec_raw.split("Movie Name is:")[1].split("(Genre:")[0].split("(Year:")[0].strip()
         else:
             # Robust cleaning: remove anything in parentheses and extra whitespace
-            import re
             rec_clean = re.sub(r'\(.*?\)', '', rec_raw).strip()
             # Also handle common year patterns without parentheses at the end if any
             rec_clean = re.sub(r'\s+\d{4}$', '', rec_clean).strip()
+
         
         name_lower = rec_clean.lower().strip()
 

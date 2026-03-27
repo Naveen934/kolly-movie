@@ -63,16 +63,21 @@ const MovieModal = ({ movie, allMovies = [], onMovieClick, onClose }) => {
       let bestMatch = null;
       for (const m of allMovies) {
         const hay = m.movie_name.toLowerCase().trim();
-        const hayWords = hay.split(/\s+/);
-        const shared = hayWords.filter(w => w.length > 1 && needleWords.includes(w)).length;
-        const score = shared / hayWords.length;
-        if (score > bestScore || (score === bestScore && hay.length > (bestMatch?.movie_name?.length || 0))) {
+        const hayWords = hay.split(/\s+/).filter(w => w.length > 1);
+        const shared = hayWords.filter(w => needleWords.includes(w)).length;
+        
+        // Calculate similarity score relative to the longer of the two names
+        const score = shared / Math.max(needleWords.length, hayWords.length);
+        
+        if (score > bestScore || (score === bestScore && Math.abs(hay.length - needle.length) < Math.abs((bestMatch?.movie_name?.length || 0) - needle.length))) {
           bestScore = score;
           bestMatch = m;
         }
       }
-      if (bestScore >= 0.5) found = bestMatch;
+      // Threshold: 0.75 means for a 2-word movie, both must match (1.0). For a 4-word movie, 3 must match (0.75).
+      if (bestScore >= 0.75) found = bestMatch;
     }
+
 
     if (!found) {
       found = {
