@@ -69,7 +69,10 @@ def refresh_poster_cache():
                 year = item.get("year")
                 
                 if name and poster:
+                    # Robust name normalization: remove any non-alphanumeric, squash spaces, lower case
+                    clean_name = re.sub(r'[^a-z0-9]', '', name.lower()).strip()
                     normalized_name = name.lower().strip()
+
                     # Robust year handling: convert to string, handle float/NaN
                     year_str = ""
                     try:
@@ -84,10 +87,20 @@ def refresh_poster_cache():
                     if year_str:
                         new_cache[f"{normalized_name}_{year_str}"] = poster
                     
-                    # 2. Latest/fallback for name-only
+                    # 2. Cleaned Name match (for robustness against hyphens/spaces)
+                    if clean_name and year_str:
+                        new_cache[f"{clean_name}_{year_str}"] = poster
+                    
+                    # 3. Latest/fallback for name-only
                     existing = new_cache.get(normalized_name)
                     if not existing or (year_str and year_str > existing.get("year", "")):
                         new_cache[normalized_name] = {"poster": poster, "year": year_str}
+                    
+                    # 4. Fallback for clean name-only
+                    existing_clean = new_cache.get(f"clean_{clean_name}")
+                    if not existing_clean or (year_str and year_str > existing_clean.get("year", "")):
+                        new_cache[f"clean_{clean_name}"] = {"poster": poster, "year": year_str}
+
             
             poster_cache = new_cache
             last_cache_refresh = datetime.now()
@@ -113,12 +126,18 @@ app.add_middleware(
 @app.get("/api")
 @app.get("/api/")
 async def root():
+    # Return some cache samples for debugging
+    samples = {k: v for i, (k, v) in enumerate(poster_cache.items()) if i < 10}
     return {
         "message": "Movie Recommendation API is running", 
         "engine": "numpy-ultralight",
         "cache_size": len(poster_cache),
-        "last_refresh": str(last_cache_refresh)
+        "last_refresh": str(last_cache_refresh),
+        "import_error": import_error,
+        "supabase_connected": supabase is not None,
+        "cache_samples": samples
     }
+
 
 @app.get("/health")
 @app.get("/api/health")
@@ -168,17 +187,19 @@ async def get_recommendations(movie: str = Query(..., description="The movie nam
                 if isinstance(entry, dict):
                     poster = entry.get("poster")
             
-            # 3. Clean and try again (Remove extra context like "(Tamil)")
+            # 3. Clean and try again (Remove extra context and normalize characters)
             if not poster:
-                clean_name = re.sub(r'\(.*?\)', '', normalized_name).strip()
-                clean_name = re.sub(r'\s+\d{4}$', '', clean_name).strip()
+                raw_clean = re.sub(r'\(.*?\)', '', normalized_name).strip()
+                raw_clean = re.sub(r'\s+\d{4}$', '', raw_clean).strip()
+                match_clean = re.sub(r'[^a-z0-9]', '', raw_clean)
                 
                 if year_str:
-                    poster = poster_cache.get(f"{clean_name}_{year_str}")
+                    poster = poster_cache.get(f"{raw_clean}_{year_str}") or poster_cache.get(f"{match_clean}_{year_str}")
                 if not poster:
-                    entry = poster_cache.get(clean_name)
+                    entry = poster_cache.get(raw_clean) or poster_cache.get(f"clean_{match_clean}")
                     if isinstance(entry, dict):
                         poster = entry.get("poster")
+
 
             # 4. Final: return None if no match. 
             # We removed fuzzy/substring matching because it was causing wrong images (e.g. Uyire Uyire matching Uyire).
