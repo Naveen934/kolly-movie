@@ -21,8 +21,8 @@ recommend_func = None
 get_status_func = None
 supabase = None
 import_error = None
-poster_cache = {}
 last_cache_refresh = None
+cache_error = None
 
 # Try to load engine
 try:
@@ -104,10 +104,12 @@ def refresh_poster_cache():
             
             poster_cache = new_cache
             last_cache_refresh = datetime.now()
-
+            cache_error = None
             logger.info(f"Poster cache refreshed: {len(poster_cache)} entries")
     except Exception as e:
+        cache_error = str(e)
         logger.error(f"Failed to refresh poster cache: {e}")
+
 
 # Initial cache population
 refresh_poster_cache()
@@ -134,9 +136,11 @@ async def root():
         "cache_size": len(poster_cache),
         "last_refresh": str(last_cache_refresh),
         "import_error": import_error,
+        "cache_error": cache_error,
         "supabase_connected": supabase is not None,
         "cache_samples": samples
     }
+
 
 
 @app.get("/health")
