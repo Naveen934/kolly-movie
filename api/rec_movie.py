@@ -17,8 +17,8 @@ logger = logging.getLogger("rec_movie")
 BASE_DIR = Path(__file__).resolve().parent
 
 # Load once
-embeddings_path = BASE_DIR / "final_movie_embeddings_weighted_average.npy"
-metadata_path = BASE_DIR / "final_movie_embeddings_weighted_average_metadata.pkl"
+embeddings_path = BASE_DIR / "temple_tower.npy"
+metadata_path = BASE_DIR / "temple_tower_data.pkl"
 
 logger.info(f"Looking for data files in: {BASE_DIR}")
 
