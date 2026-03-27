@@ -128,8 +128,15 @@ def recommend(movie_name, top_k=8):
         rec_clean = rec_raw
         if "Movie Name is:" in rec_raw:
             rec_clean = rec_raw.split("Movie Name is:")[1].split("(Genre:")[0].split("(Year:")[0].strip()
+        else:
+            # Robust cleaning: remove anything in parentheses and extra whitespace
+            import re
+            rec_clean = re.sub(r'\(.*?\)', '', rec_raw).strip()
+            # Also handle common year patterns without parentheses at the end if any
+            rec_clean = re.sub(r'\s+\d{4}$', '', rec_clean).strip()
         
         name_lower = rec_clean.lower().strip()
+
         if name_lower in seen_names:
             continue
             

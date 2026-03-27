@@ -17,6 +17,9 @@ export const toSlug = (name) => (name || '')
 
 export const getMovieImageUrl = (name, year) => {
   if (!name || !year) return null;
-  const slug = toSlug(name);
+  // Robustly clean name of trailing years to avoid double-year URLs like movie-2022-2022.webp
+  const cleanName = (name || '').replace(/\(\d{4}\)$/, '').replace(/\s+\d{4}$/, '').trim();
+  const slug = toSlug(cleanName);
   return `https://moviesda18.com/uploads/images/${slug}-${year}.webp`;
 };
+

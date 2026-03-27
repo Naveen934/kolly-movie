@@ -124,21 +124,31 @@ async def get_recommendations(movie: str = Query(..., description="The movie nam
             return {"movie": movie, "recommendations": []}
 
         # Enrich with posters using the robust local cache
+        import re
         for res in results:
             name = res["name"]
             normalized_name = name.lower().strip()
             
             # 1. Direct normalized match
-            res["poster"] = poster_cache.get(normalized_name)
+            poster = poster_cache.get(normalized_name)
             
-            # 2. Fallback: Check if rec name is a substring of any DB name or vice-versa
-            if not res["poster"]:
+            # 2. Advanced match: strip year from name if present and try again
+            if not poster:
+                clean_name = re.sub(r'\(.*?\)', '', normalized_name).strip()
+                clean_name = re.sub(r'\s+\d{4}$', '', clean_name).strip()
+                poster = poster_cache.get(clean_name)
+
+            # 3. Fallback: Check if rec name is a substring of any DB name or vice-versa
+            if not poster:
                 for db_name, poster_url in poster_cache.items():
-                    if normalized_name in db_name or db_name in normalized_name:
+                    if clean_name in db_name or db_name in clean_name:
                         # 70% overlap threshold simplified
-                        if len(normalized_name) > 0.7 * len(db_name) or len(db_name) > 0.7 * len(normalized_name):
-                            res["poster"] = poster_url
+                        if len(clean_name) > 0.7 * len(db_name) or len(db_name) > 0.7 * len(clean_name):
+                            poster = poster_url
                             break
+            
+            res["poster"] = poster
+
         
         return {"movie": movie, "recommendations": results}
     except Exception as e:
