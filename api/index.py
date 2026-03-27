@@ -34,19 +34,45 @@ except ImportError:
 try:
     from rec_movie import recommend, get_status
     import_error = None
-except Exception as e:
-    recommend = None
-    get_status = lambda: {"error": f"Import failed: {str(e)}", "traceback": traceback.format_exc()}
-    import_error = str(e)
+# Global engine state and error tracking
+recommend_func = None
+engine_import_error = None
+engine_get_status_func = None
 
-# Remove root_path to avoid confusion, deal with paths explicitly or via prefix
+def load_engine():
+    global recommend_func, engine_import_error, engine_get_status_func
+    if recommend_func and engine_get_status_func: # Already loaded
+        return
+
+    try:
+        import rec_movie
+        recommend_func = rec_movie.recommend
+        engine_get_status_func = rec_movie.get_status
+        logger.info("Recommendation engine (rec_movie) loaded successfully.")
+    except Exception as e:
+        engine_import_error = str(e)
+        recommend_func = None
+        engine_get_status_func = lambda: {"error": f"Engine import failed: {str(e)}", "traceback": traceback.format_exc()}
+        logger.error(f"Failed to load rec_movie engine: {e}", exc_info=True)
+
+# Attempt to load the engine at startup
+load_engine()
+
+# Initialize Supabase with safety guards
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+supabase = None
+
+if SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        logger.info("Supabase client initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize Supabase client: {e}")
+else:
+    logger.warning("SUPABASE_URL or SUPABASE_KEY missing in environment variables. Supabase client not initialized.")
+
 app = FastAPI()
-
-# Supabase configuration
-SUPA_URL = os.environ.get("SUPABASE_URL", "https://uuvkjqcnkgwhagpyfguz.supabase.co")
-SUPA_KEY = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dmtqcWNua2d3aGFncHlmZ3V6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5NzYzNTAsImV4cCI6MjA4OTU1MjM1MH0.ew3GkB6uB6egtx5lWYDFdcEKaTtRDMHZYFEXNin6RBg")
-
-supabase: Client = create_client(SUPA_URL, SUPA_KEY)
 
 # Allow CORS for React frontend
 app.add_middleware(
