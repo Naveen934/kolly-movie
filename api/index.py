@@ -5,6 +5,8 @@ import logging
 from datetime import datetime, timedelta
 import re
 import numpy as np
+from contextlib import asynccontextmanager
+
 
 
 # Configure logging
@@ -73,8 +75,9 @@ def refresh_poster_cache():
     
     try:
         logger.info("Refreshing poster cache...")
-        # Fetch all movies (limit 5000 to cover all 1652+ rows)
-        response = supabase.table("tamil_movies").select("movie_name, poster, year").limit(5000).execute()
+        # Fetch movies (limit 2000 to cover all rows without hitting Vercel/Supabase limits)
+        response = supabase.table("tamil_movies").select("movie_name, poster, year").limit(2000).execute()
+
         total_rows_fetched = len(response.data) if response.data else 0
         if response.data:
 
@@ -129,10 +132,14 @@ def refresh_poster_cache():
         logger.error(f"Failed to refresh poster cache: {e}")
 
 
-# Initial cache population
-refresh_poster_cache()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initial cache population on startup
+    refresh_poster_cache()
+    yield
 
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
+
 
 app.add_middleware(
     CORSMiddleware,
