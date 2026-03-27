@@ -3,6 +3,9 @@ import os
 import traceback
 import logging
 from datetime import datetime, timedelta
+import re
+import numpy as np
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -60,7 +63,8 @@ except Exception as e:
 
 
 def refresh_poster_cache():
-    global poster_cache, last_cache_refresh
+    global poster_cache, last_cache_refresh, cache_error
+
     if not supabase:
         return
     
@@ -184,9 +188,8 @@ async def get_recommendations(movie: str = Query(..., description="The movie nam
             return {"movie": movie, "recommendations": []}
 
         # Enrich with posters using the robust local cache
-        import re
-        import numpy as np
         for res in results:
+
             name = res["name"]
             year = res.get("year")
             normalized_name = name.lower().strip()
