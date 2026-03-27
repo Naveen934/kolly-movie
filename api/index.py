@@ -75,25 +75,28 @@ def refresh_poster_cache():
     
     try:
         logger.info("Refreshing poster cache...")
-        # Fetch movies (limit 2000 to cover all rows without hitting Vercel/Supabase limits)
-        response = supabase.table("tamil_movies").select("movie_name, poster, year").limit(2000).execute()
-
-        total_rows_fetched = len(response.data) if response.data else 0
-        if response.data:
-
-            # Map normalized name + year to poster URL
-            # Also map normalized name to the LATEST poster for fallback
-            new_cache = {}
-            for item in response.data:
-                name = item.get("movie_name")
-                poster = item.get("poster")
-                year = item.get("year")
+        new_cache = {}
+        all_data = []
+        batch_size = 1000
+        offset = 0
+        
+        while True:
+            response = supabase.table("tamil_movies").select("movie_name, poster, year").range(offset, offset + batch_size - 1).execute()
+            if not response.data:
+                break
+            all_data.extend(response.data)
+            if len(response.data) < batch_size:
+                break
+            offset += batch_size
+            
+        total_rows_fetched = len(all_data)
+        if all_data:
+            for row in all_data:
+                name = row.get("movie_name")
+                poster = row.get("poster")
+                year = row.get("year")
                 
                 if name and poster:
-                    # Robust name normalization: remove any non-alphanumeric, squash spaces, lower case
-                    clean_name = re.sub(r'[^a-z0-9]', '', name.lower()).strip()
-                    normalized_name = name.lower().strip()
-
                     # Robust year handling: convert to string, handle float/NaN
                     year_str = ""
                     try:
@@ -103,16 +106,17 @@ def refresh_poster_cache():
                                 year_str = str(year_int)
                     except:
                         pass
-                    
+
+                    normalized_name = name.lower().strip()
+                    clean_name = re.sub(r'[^a-z0-9]', '', normalized_name)
+
                     # 1. Exact Name + Year match
                     if year_str:
                         new_cache[f"{normalized_name}_{year_str}"] = poster
+                        if clean_name: # Also store clean name + year
+                            new_cache[f"{clean_name}_{year_str}"] = poster
                     
-                    # 2. Cleaned Name match (for robustness against hyphens/spaces)
-                    if clean_name and year_str:
-                        new_cache[f"{clean_name}_{year_str}"] = poster
-                    
-                    # 3. Latest/fallback for name-only
+                    # 2. Latest/fallback for name-only (normalized)
                     existing = new_cache.get(normalized_name)
                     if not existing or (year_str and year_str > existing.get("year", "")):
                         new_cache[normalized_name] = {"poster": poster, "year": year_str}
