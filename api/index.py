@@ -57,8 +57,8 @@ def refresh_poster_cache():
     
     try:
         logger.info("Refreshing poster cache...")
-        # Fetch all movies with years to handle duplicates (e.g. Vikram 1986 vs 2022)
-        response = supabase.table("tamil_movies").select("movie_name, poster, year").execute()
+        # Fetch all movies (limit 5000 to cover all 1652+ rows)
+        response = supabase.table("tamil_movies").select("movie_name, poster, year").limit(5000).execute()
         if response.data:
             # Map normalized name + year to poster URL
             # Also map normalized name to the LATEST poster for fallback
@@ -180,18 +180,8 @@ async def get_recommendations(movie: str = Query(..., description="The movie nam
                     if isinstance(entry, dict):
                         poster = entry.get("poster")
 
-            # 4. Fallback: Fuzzy Name Match (substring) - Be careful!
-            if not poster:
-                clean_name = re.sub(r'[^a-z0-9]', '', normalized_name)
-                for key, val in poster_cache.items():
-                    if "_" not in key and isinstance(val, dict):
-                        db_name_clean = re.sub(r'[^a-z0-9]', '', key)
-                        if clean_name == db_name_clean or clean_name in db_name_clean or db_name_clean in clean_name:
-                            # Only accept if they are reasonably close in length
-                            if len(clean_name) > 0.8 * len(db_name_clean) or len(db_name_clean) > 0.8 * len(clean_name):
-                                poster = val.get("poster")
-                                break
-
+            # 4. Final: return None if no match. 
+            # We removed fuzzy/substring matching because it was causing wrong images (e.g. Uyire Uyire matching Uyire).
             
             res["poster"] = poster
 
