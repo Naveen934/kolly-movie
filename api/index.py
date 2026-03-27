@@ -134,9 +134,10 @@ def refresh_poster_cache():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initial cache population on startup
-    refresh_poster_cache()
+    # Skip initial refresh on startup to avoid Vercel timeout
+    # refresh_poster_cache()
     yield
+
 
 app = FastAPI(lifespan=lifespan)
 
@@ -152,9 +153,13 @@ app.add_middleware(
 @app.get("/")
 @app.get("/api")
 @app.get("/api/")
-async def root():
+async def root(refresh: bool = False):
+    if refresh:
+        refresh_poster_cache()
+    
     # Return some cache samples for debugging
     samples = {}
+
     if poster_cache:
         samples = {k: v for i, (k, v) in enumerate(poster_cache.items()) if i < 10}
     
