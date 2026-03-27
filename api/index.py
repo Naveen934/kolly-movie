@@ -58,7 +58,7 @@ def refresh_poster_cache():
     try:
         logger.info("Refreshing poster cache...")
         # Fetch all movies with years to handle duplicates (e.g. Vikram 1986 vs 2022)
-        response = supabase.table("tamil_movies").select("movie_name, poster, release_year, year").execute()
+        response = supabase.table("tamil_movies").select("movie_name, poster, year").execute()
         if response.data:
             # Map normalized name + year to poster URL
             # Also map normalized name to the LATEST poster for fallback
@@ -66,11 +66,19 @@ def refresh_poster_cache():
             for item in response.data:
                 name = item.get("movie_name")
                 poster = item.get("poster")
-                year = item.get("release_year") or item.get("year")
+                year = item.get("year")
                 
                 if name and poster:
                     normalized_name = name.lower().strip()
-                    year_str = str(int(float(year))) if year and not (isinstance(year, float) and np.isnan(year)) else ""
+                    # Robust year handling: convert to string, handle float/NaN
+                    year_str = ""
+                    try:
+                        if year is not None:
+                            year_int = int(float(year))
+                            if 1900 < year_int < 2030:
+                                year_str = str(year_int)
+                    except:
+                        pass
                     
                     # 1. Exact Name + Year match
                     if year_str:
@@ -83,6 +91,7 @@ def refresh_poster_cache():
             
             poster_cache = new_cache
             last_cache_refresh = datetime.now()
+
             logger.info(f"Poster cache refreshed: {len(poster_cache)} entries")
     except Exception as e:
         logger.error(f"Failed to refresh poster cache: {e}")
@@ -148,18 +157,18 @@ async def get_recommendations(movie: str = Query(..., description="The movie nam
             normalized_name = name.lower().strip()
             year_str = str(year) if year else ""
             
-            # 1. Direct match with Year (Best)
+            # 1. Search for direct match in local cache
             poster = None
             if year_str:
                 poster = poster_cache.get(f"{normalized_name}_{year_str}")
             
-            # 2. Direct match with Name only (Fallback to latest)
+            # 2. Fallback to name-only match
             if not poster:
                 entry = poster_cache.get(normalized_name)
                 if isinstance(entry, dict):
                     poster = entry.get("poster")
             
-            # 3. Advanced match: strip brackets and try again
+            # 3. Clean and try again (Remove extra context like "(Tamil)")
             if not poster:
                 clean_name = re.sub(r'\(.*?\)', '', normalized_name).strip()
                 clean_name = re.sub(r'\s+\d{4}$', '', clean_name).strip()
@@ -171,17 +180,18 @@ async def get_recommendations(movie: str = Query(..., description="The movie nam
                     if isinstance(entry, dict):
                         poster = entry.get("poster")
 
-            # 4. Final Substring fallback
+            # 4. Fallback: Fuzzy Name Match (substring) - Be careful!
             if not poster:
-                clean_name = re.sub(r'\(.*?\)', '', normalized_name).strip()
+                clean_name = re.sub(r'[^a-z0-9]', '', normalized_name)
                 for key, val in poster_cache.items():
-                    # Only check name-only keys in the cache for substring
                     if "_" not in key and isinstance(val, dict):
-                        db_name = key
-                        if clean_name in db_name or db_name in clean_name:
-                            if len(clean_name) > 0.7 * len(db_name) or len(db_name) > 0.7 * len(clean_name):
+                        db_name_clean = re.sub(r'[^a-z0-9]', '', key)
+                        if clean_name == db_name_clean or clean_name in db_name_clean or db_name_clean in clean_name:
+                            # Only accept if they are reasonably close in length
+                            if len(clean_name) > 0.8 * len(db_name_clean) or len(db_name_clean) > 0.8 * len(clean_name):
                                 poster = val.get("poster")
                                 break
+
             
             res["poster"] = poster
 
