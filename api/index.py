@@ -57,21 +57,33 @@ def refresh_poster_cache():
     
     try:
         logger.info("Refreshing poster cache...")
-        # Fetch all movies to handle naming mismatches robustly
-        response = supabase.table("tamil_movies").select("movie_name, poster").execute()
+        # Fetch all movies with years to handle duplicates (e.g. Vikram 1986 vs 2022)
+        response = supabase.table("tamil_movies").select("movie_name, poster, release_year, year").execute()
         if response.data:
-            # Map normalized name (lower + strip) to poster URL
+            # Map normalized name + year to poster URL
+            # Also map normalized name to the LATEST poster for fallback
             new_cache = {}
             for item in response.data:
                 name = item.get("movie_name")
                 poster = item.get("poster")
-                if name:
+                year = item.get("release_year") or item.get("year")
+                
+                if name and poster:
                     normalized_name = name.lower().strip()
-                    new_cache[normalized_name] = poster
+                    year_str = str(int(float(year))) if year and not (isinstance(year, float) and np.isnan(year)) else ""
+                    
+                    # 1. Exact Name + Year match
+                    if year_str:
+                        new_cache[f"{normalized_name}_{year_str}"] = poster
+                    
+                    # 2. Latest/fallback for name-only
+                    existing = new_cache.get(normalized_name)
+                    if not existing or (year_str and year_str > existing.get("year", "")):
+                        new_cache[normalized_name] = {"poster": poster, "year": year_str}
             
             poster_cache = new_cache
             last_cache_refresh = datetime.now()
-            logger.info(f"Poster cache refreshed: {len(poster_cache)} items")
+            logger.info(f"Poster cache refreshed: {len(poster_cache)} entries")
     except Exception as e:
         logger.error(f"Failed to refresh poster cache: {e}")
 
@@ -129,29 +141,50 @@ async def get_recommendations(movie: str = Query(..., description="The movie nam
 
         # Enrich with posters using the robust local cache
         import re
+        import numpy as np
         for res in results:
             name = res["name"]
+            year = res.get("year")
             normalized_name = name.lower().strip()
+            year_str = str(year) if year else ""
             
-            # 1. Direct normalized match
-            poster = poster_cache.get(normalized_name)
+            # 1. Direct match with Year (Best)
+            poster = None
+            if year_str:
+                poster = poster_cache.get(f"{normalized_name}_{year_str}")
             
-            # 2. Advanced match: strip year from name if present and try again
+            # 2. Direct match with Name only (Fallback to latest)
+            if not poster:
+                entry = poster_cache.get(normalized_name)
+                if isinstance(entry, dict):
+                    poster = entry.get("poster")
+            
+            # 3. Advanced match: strip brackets and try again
             if not poster:
                 clean_name = re.sub(r'\(.*?\)', '', normalized_name).strip()
                 clean_name = re.sub(r'\s+\d{4}$', '', clean_name).strip()
-                poster = poster_cache.get(clean_name)
+                
+                if year_str:
+                    poster = poster_cache.get(f"{clean_name}_{year_str}")
+                if not poster:
+                    entry = poster_cache.get(clean_name)
+                    if isinstance(entry, dict):
+                        poster = entry.get("poster")
 
-            # 3. Fallback: Check if rec name is a substring of any DB name or vice-versa
+            # 4. Final Substring fallback
             if not poster:
-                for db_name, poster_url in poster_cache.items():
-                    if clean_name in db_name or db_name in clean_name:
-                        # 70% overlap threshold simplified
-                        if len(clean_name) > 0.7 * len(db_name) or len(db_name) > 0.7 * len(clean_name):
-                            poster = poster_url
-                            break
+                clean_name = re.sub(r'\(.*?\)', '', normalized_name).strip()
+                for key, val in poster_cache.items():
+                    # Only check name-only keys in the cache for substring
+                    if "_" not in key and isinstance(val, dict):
+                        db_name = key
+                        if clean_name in db_name or db_name in clean_name:
+                            if len(clean_name) > 0.7 * len(db_name) or len(db_name) > 0.7 * len(clean_name):
+                                poster = val.get("poster")
+                                break
             
             res["poster"] = poster
+
 
         
         return {"movie": movie, "recommendations": results}
