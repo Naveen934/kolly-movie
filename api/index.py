@@ -21,8 +21,10 @@ recommend_func = None
 get_status_func = None
 supabase = None
 import_error = None
+poster_cache = {}
 last_cache_refresh = None
 cache_error = None
+
 
 # Try to load engine
 try:
