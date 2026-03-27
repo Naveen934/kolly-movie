@@ -1,0 +1,6 @@
+fastapi
+numpy
+python-multipart
+supabase
+python-dotenv
+pandas

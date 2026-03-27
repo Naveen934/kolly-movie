@@ -1,7 +1,6 @@
-# simple_recommend.py - Minimal version
+from pathlib import Path
 import numpy as np
 import pickle
-import faiss
 import os
 import logging
 import sys
@@ -15,22 +14,32 @@ logging.basicConfig(
 logger = logging.getLogger("rec_movie")
 
 # Get the directory of the current script to handle paths on Vercel
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = Path(__file__).resolve().parent
 
 # Load once
-embeddings_path = os.path.join(BASE_DIR, "final_movie_embeddings_weighted_average.npy")
-metadata_path = os.path.join(BASE_DIR, "final_movie_embeddings_weighted_average_metadata.pkl")
-index_path = os.path.join(BASE_DIR, "movie_faiss_index_weighted_average.faiss")
+embeddings_path = BASE_DIR / "final_movie_embeddings_weighted_average.npy"
+metadata_path = BASE_DIR / "final_movie_embeddings_weighted_average_metadata.pkl"
 
 logger.info(f"Looking for data files in: {BASE_DIR}")
 
+# Global variables
+embeddings = None
+movie_names = []
+movie_years = []
+load_error = None
+
 # Check and load data
 try:
-    if os.path.exists(embeddings_path) and os.path.exists(metadata_path) and os.path.exists(index_path):
+    if embeddings_path.exists() and metadata_path.exists():
         logger.info("Loading recommendation data files...")
         
-        embeddings = np.load(embeddings_path)
-        logger.info(f"Embeddings loaded. Shape: {embeddings.shape}")
+        # Load and normalize embeddings for fast dot-product cosine similarity
+        raw_embeddings = np.load(str(embeddings_path)).astype('float32')
+        norms = np.linalg.norm(raw_embeddings, axis=1, keepdims=True)
+        # Avoid division by zero
+        norms[norms == 0] = 1.0
+        embeddings = raw_embeddings / norms
+        logger.info(f"Embeddings loaded and normalized. Shape: {embeddings.shape}")
         
         with open(metadata_path, 'rb') as f:
             meta_data = pickle.load(f)
@@ -55,33 +64,35 @@ try:
         else:
             movie_years = [None] * len(movie_names)
             
-        index = faiss.read_index(index_path)
-        logger.info(f"FAISS index loaded. Count: {index.ntotal}")
+        logger.info(f"Engine initialized with {len(movie_names)} movies.")
     else:
         missing = []
-        if not os.path.exists(embeddings_path): missing.append("embeddings")
-        if not os.path.exists(metadata_path): missing.append("metadata")
-        if not os.path.exists(index_path): missing.append("index")
+        if not embeddings_path.exists(): missing.append("embeddings")
+        if not metadata_path.exists(): missing.append("metadata")
         
-        error_msg = f"Warning: Recommendation data files missing: {', '.join(missing)}"
-        logger.warning(error_msg)
-        embeddings = np.zeros((1, 10))
-        movie_names = []
-        movie_years = []
-        index = None
+        load_error = f"Recommendation data files missing: {', '.join(missing)}"
+        logger.warning(load_error)
 except Exception as e:
-    logger.error(f"Error loading recommendation data: {str(e)}", exc_info=True)
-    embeddings = np.zeros((1, 10))
-    movie_names = []
-    movie_years = []
-    index = None
+    load_error = f"Error loading recommendation data: {str(e)}"
+    logger.error(load_error, exc_info=True)
+
+def get_status():
+    """Return the current status of the recommendation engine"""
+    return {
+        "loaded": embeddings is not None,
+        "movies_count": len(movie_names),
+        "embeddings_shape": embeddings.shape if embeddings is not None else None,
+        "error": load_error,
+        "base_dir": str(BASE_DIR),
+        "backend": "numpy-ultralight"
+    }
 
 def recommend(movie_name, top_k=8):
-    """Get recommendations for a movie"""
+    """Get recommendations for a movie using NumPy brute-force (instant for 1.6k movies)"""
     logger.info(f"Recommendation requested for: '{movie_name}'")
     
-    if index is None:
-        logger.error("Recommendation index is NOT loaded. Returning empty list.")
+    if embeddings is None:
+        logger.error("Recommendation engine is NOT loaded. Returning empty list.")
         return []
 
     # Find movie
@@ -96,31 +107,50 @@ def recommend(movie_name, top_k=8):
         logger.warning(f"Movie '{movie_name}' not found in database for recommendations.")
         return []
     
-    # Search
-    logger.info(f"Found movie '{movie_names[idx]}' at index {idx}. Performing FAISS search...")
-    query = embeddings[idx].reshape(1, -1).astype('float32')
-    scores, indices = index.search(query, top_k + 1)
+    # Search via Dot Product (since vectors are normalized)
+    logger.info(f"Found movie '{movie_names[idx]}' at index {idx}. Performing NumPy search...")
+    query_vec = embeddings[idx]
+    
+    # Calculate similarity scores (cosine similarity = dot product of normalized vectors)
+    similarities = np.dot(embeddings, query_vec)
+    
+    # Get top_k + 1 results (to skip self)
+    # argsort gives indices from smallest to largest, so we take the end and reverse
+    # We take top_k + 5 just in case of duplicates
+    top_indices = np.argsort(similarities)[-(top_k + 5):][::-1]
     
     # Return results
     results = []
-    for i in range(1, top_k + 1):
-        if i >= len(indices[0]):
-            break
-        rec_idx = indices[0][i]
-        if rec_idx >= len(movie_names):
+    seen_names = {movie_names[idx].lower().strip()} # Skip the query movie itself
+    
+    for rec_idx in top_indices:
+        rec_raw = movie_names[rec_idx]
+        rec_clean = rec_raw
+        if "Movie Name is:" in rec_raw:
+            rec_clean = rec_raw.split("Movie Name is:")[1].split("(Genre:")[0].split("(Year:")[0].strip()
+        
+        name_lower = rec_clean.lower().strip()
+        if name_lower in seen_names:
             continue
-        rec = movie_names[rec_idx]
-        # Clean up name
-        if "Movie Name is:" in rec:
-            rec = rec.split("Movie Name is:")[1].split("(Genre:")[0].split("(Year:")[0].strip()
+            
+        score = float(similarities[rec_idx])
         year = movie_years[rec_idx] if rec_idx < len(movie_years) else None
-        results.append({"name": rec, "similarity": float(scores[0][i]), "year": year})
+        
+        results.append({
+            "name": rec_clean, 
+            "similarity": score, 
+            "year": year
+        })
+        seen_names.add(name_lower)
+        
+        if len(results) >= top_k:
+            break
     
     return results
 
 # Usage
 if __name__ == "__main__":
-    movie = "7Aum Arivu" # which movie we click 
+    movie = "7Aum Arivu" 
     print(f"\n🎬 Recommendations for '{movie}':")
     for i, res in enumerate(recommend(movie, top_k=5), 1):
         print(f"   {i}. {res['name']} (year: {res.get('year')}, similarity: {res['similarity']:.4f})")

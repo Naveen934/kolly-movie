@@ -1,6 +1,5 @@
 fastapi
 numpy
-faiss-cpu
 python-multipart
 supabase
 python-dotenv
