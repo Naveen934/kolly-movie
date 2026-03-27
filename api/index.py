@@ -1,80 +1,52 @@
 import sys
 import os
 import traceback
-
-# Add the current directory to sys.path to ensure local imports work on Vercel
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from supabase import create_client, Client
-import os
-import sys
 import logging
 
-try:
-    import uvicorn
-except ImportError:
-    uvicorn = None
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Ensure the 'api' directory is in the path so we can import rec_movie
+# Add the current directory to sys.path to ensure local imports work on Vercel
 api_dir = os.path.dirname(os.path.abspath(__file__))
 if api_dir not in sys.path:
     sys.path.append(api_dir)
 
-try:
-    import rec_movie
-except ImportError:
-    # Handle cases where rec_movie might be in current path instead of api.rec_movie
-    import sys
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    import rec_movie
+from fastapi import FastAPI, Query, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 
-# Try to import recommend, but don't crash if it fails (so we can report the error via /health)
-try:
-    from rec_movie import recommend, get_status
-    import_error = None
-# Global engine state and error tracking
-recommend_func = None
-engine_import_error = None
-engine_get_status_func = None
-
-def load_engine():
-    global recommend_func, engine_import_error, engine_get_status_func
-    if recommend_func and engine_get_status_func: # Already loaded
-        return
-
-    try:
-        import rec_movie
-        recommend_func = rec_movie.recommend
-        engine_get_status_func = rec_movie.get_status
-        logger.info("Recommendation engine (rec_movie) loaded successfully.")
-    except Exception as e:
-        engine_import_error = str(e)
-        recommend_func = None
-        engine_get_status_func = lambda: {"error": f"Engine import failed: {str(e)}", "traceback": traceback.format_exc()}
-        logger.error(f"Failed to load rec_movie engine: {e}", exc_info=True)
-
-# Attempt to load the engine at startup
-load_engine()
-
-# Initialize Supabase with safety guards
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+# Global states
+recommend = None
+get_status = None
 supabase = None
+import_error = None
 
-if SUPABASE_URL and SUPABASE_KEY:
-    try:
-        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        logger.info("Supabase client initialized successfully")
-    except Exception as e:
-        logger.error(f"Failed to initialize Supabase client: {e}")
-else:
-    logger.warning("SUPABASE_URL or SUPABASE_KEY missing in environment variables. Supabase client not initialized.")
+# Try to load engine
+try:
+    import rec_movie
+    recommend = rec_movie.recommend
+    get_status = rec_movie.get_status
+    logger.info("Recommendation engine loaded successfully")
+except Exception as e:
+    import_error = str(e)
+    logger.error(f"Engine import failed: {e}")
+    get_status = lambda: {"loaded": False, "error": import_error}
+
+# Try to load supabase
+try:
+    from supabase import create_client
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+    if url and key:
+        supabase = create_client(url, key)
+        logger.info("Supabase client initialized")
+    else:
+        logger.warning("Supabase credentials missing")
+except Exception as e:
+    logger.error(f"Supabase init failed: {e}")
 
 app = FastAPI()
 
-# Allow CORS for React frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -85,82 +57,50 @@ app.add_middleware(
 
 @app.get("/")
 @app.get("/api")
+@app.get("/api/")
 async def root():
-    """Debug root to check if API is reachable"""
-    return {"message": "Movie Recommendation API is running", "endpoints": ["/health", "/recommend"]}
+    return {"message": "Movie Recommendation API is running", "engine": "numpy-ultralight"}
 
 @app.get("/health")
 @app.get("/api/health")
-async def health():
-    """Check the status of the API and recommendation engine"""
-    status = get_status()
+async def health_check():
+    status = get_status() if get_status else {"loaded": False}
     return {
-        "status": "online" if not import_error else "degraded",
-        "import_error": import_error,
-        "engine": status
+        "status": "online" if recommend else "degraded",
+        "engine": status,
+        "supabase": supabase is not None
     }
 
 @app.get("/recommend")
 @app.get("/api/recommend")
-async def get_recommendations(movie: str = Query(..., description="The movie name to get recommendations for")):
-    print(f"DEBUG: Received request for movie: {movie}")
+async def get_recommendations(movie: str = Query(..., description="The movie name")):
+    if not recommend:
+        raise HTTPException(status_code=503, detail="Recommendation engine not available")
     
-    if recommend is None:
-        return {"error": "Recommendation engine failed to load", "details": import_error}
-        
     try:
         results = recommend(movie)
-        print(f"DEBUG: Found {len(results)} recommendations")
-        
         if not results:
             return {"movie": movie, "recommendations": []}
-            
-        # Enrich with posters from Supabase efficiently
-        rec_names = [res["name"] for res in results]
-        
-        response = supabase.table("tamil_movies")\
-            .select("movie_name, poster")\
-            .in_("movie_name", rec_names)\
-            .execute()
-            
-        poster_map = {item["movie_name"].lower().strip(): item["poster"] for item in response.data if item["movie_name"]}
-        
-        # If some posters are missing, try a broader search or simple fallback
-        missing_names = [name for name in rec_names if name.lower().strip() not in poster_map]
-        
-        if missing_names:
-            for missing_name in missing_names:
-                broad_res = supabase.table("tamil_movies")\
-                    .select("movie_name, poster")\
-                    .ilike("movie_name", f"%{missing_name}%")\
-                    .execute()
-                if broad_res.data:
-                    for item in broad_res.data:
-                        poster_map[missing_name.lower().strip()] = item["poster"]
-                        break
-        
-        # Add posters to results
-        for res in results:
-            name_lower = res["name"].lower().strip()
-            res["poster"] = poster_map.get(name_lower)
-            
-            if not res["poster"]:
-                 best_score = 0
-                 best_p = None
-                 for m_name, p_url in poster_map.items():
-                     if name_lower in m_name or m_name in name_lower:
-                         overlap = min(len(name_lower), len(m_name)) / max(len(name_lower), len(m_name))
-                         if overlap > best_score:
-                             best_score = overlap
-                             best_p = p_url
-                 
-                 if best_score > 0.7:
-                     res["poster"] = best_p
+
+        # Enrich with posters if supabase is available
+        if supabase:
+            try:
+                rec_names = [res["name"] for res in results]
+                response = supabase.table("tamil_movies").select("movie_name, poster").in_("movie_name", rec_names).execute()
+                poster_map = {item["movie_name"].lower().strip(): item["poster"] for item in response.data}
+                for res in results:
+                    res["poster"] = poster_map.get(res["name"].lower().strip())
+            except Exception as e:
+                logger.error(f"Poster enrichment failed: {e}")
         
         return {"movie": movie, "recommendations": results}
     except Exception as e:
-        print(f"DEBUG: ERROR in /recommend: {str(e)}")
-        return {"error": str(e), "traceback": traceback.format_exc()}
+        logger.error(f"Recommendation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    try:
+        import uvicorn
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    except ImportError:
+        print("uvicorn not installed, cannot run local server")
