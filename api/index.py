@@ -107,14 +107,9 @@ async def health_check():
         "status": "online" if recommend_func else "degraded",
         "engine": status,
         "supabase": supabase is not None,
-        "cache_items": len(poster_cache),
-        "env_vars": {
-            "SUPABASE_URL": "present" if os.environ.get("SUPABASE_URL") else "missing",
-            "SUPABASE_KEY": "present" if os.environ.get("SUPABASE_KEY") else "missing",
-            "VITE_SUPABASE_URL": "present" if os.environ.get("VITE_SUPABASE_URL") else "missing",
-            "VITE_SUPABASE_ANON_KEY": "present" if os.environ.get("VITE_SUPABASE_ANON_KEY") else "missing"
-        }
+        "cache_items": len(poster_cache)
     }
+
 
 
 @app.get("/recommend")
