@@ -38,14 +38,17 @@ except Exception as e:
 # Try to load supabase
 try:
     from supabase import create_client
-    url = os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY") or os.environ.get("VITE_SUPABASE_ANON_KEY")
+    if not url or not key:
+        # Fallback to hardcoded credentials if env vars are missing
+        url = "https://uuvkjqcnkgwhagpyfguz.supabase.co"
+        key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dmtqcWNua2d3aGFncHlmZ3V6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM5NzYzNTAsImV4cCI6MjA4OTU1MjM1MH0.ew3GkB6uB6egtx5lWYDFdcEKaTtRDMHZYFEXNin6RBg"
     
     if url and key:
         supabase = create_client(url, key)
-        logger.info(f"Supabase client initialized with URL: {url[:20]}...")
+        logger.info(f"Supabase client initialized")
     else:
-        logger.warning(f"Supabase credentials missing. URL present: {url is not None}, Key present: {key is not None}")
+        logger.warning("Supabase credentials missing.")
+
 except Exception as e:
     logger.error(f"Supabase init failed: {e}")
 
@@ -129,17 +132,20 @@ app.add_middleware(
 @app.get("/api/")
 async def root():
     # Return some cache samples for debugging
-    samples = {k: v for i, (k, v) in enumerate(poster_cache.items()) if i < 10}
+    samples = {}
+    if poster_cache:
+        samples = {k: v for i, (k, v) in enumerate(poster_cache.items()) if i < 10}
+    
     return {
         "message": "Movie Recommendation API is running", 
         "engine": "numpy-ultralight",
         "cache_size": len(poster_cache),
         "last_refresh": str(last_cache_refresh),
-        "import_error": import_error,
         "cache_error": cache_error,
         "supabase_connected": supabase is not None,
         "cache_samples": samples
     }
+
 
 
 
