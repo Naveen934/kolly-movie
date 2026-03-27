@@ -38,15 +38,17 @@ except Exception as e:
 # Try to load supabase
 try:
     from supabase import create_client
-    url = os.environ.get("SUPABASE_URL")
-    key = os.environ.get("SUPABASE_KEY")
+    url = os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY") or os.environ.get("VITE_SUPABASE_ANON_KEY")
+    
     if url and key:
         supabase = create_client(url, key)
-        logger.info("Supabase client initialized")
+        logger.info(f"Supabase client initialized with URL: {url[:20]}...")
     else:
-        logger.warning("Supabase credentials missing")
+        logger.warning(f"Supabase credentials missing. URL present: {url is not None}, Key present: {key is not None}")
 except Exception as e:
     logger.error(f"Supabase init failed: {e}")
+
 
 def refresh_poster_cache():
     global poster_cache, last_cache_refresh
