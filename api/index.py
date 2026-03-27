@@ -38,6 +38,9 @@ except Exception as e:
 # Try to load supabase
 try:
     from supabase import create_client
+    url = os.environ.get("SUPABASE_URL") or os.environ.get("VITE_SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY") or os.environ.get("VITE_SUPABASE_ANON_KEY")
+    
     if not url or not key:
         # Fallback to hardcoded credentials if env vars are missing
         url = "https://uuvkjqcnkgwhagpyfguz.supabase.co"
@@ -51,6 +54,7 @@ try:
 
 except Exception as e:
     logger.error(f"Supabase init failed: {e}")
+
 
 
 def refresh_poster_cache():
